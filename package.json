@@ -11,10 +11,16 @@
   "manifest": {
     "permissions": [
       "storage",
-      "activeTab"
+      "activeTab",
+      "scripting",
+      "tabs",
+      "cookies",
+      "alarms",
+      "offscreen"
     ],
     "host_permissions": [
-      "https://www.linkedin.com/*"
+      "https://www.linkedin.com/*",
+      "https://*.linkedin.com/*"
     ]
   },
   "icon": {

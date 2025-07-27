@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { Mail, LogOut, Loader2, CheckCircle } from "lucide-react";
+import { Mail, LogOut, Loader2, CheckCircle, Activity } from "lucide-react";
 import "./style.css";
 
 import { Button } from "./components/ui/button";
@@ -26,20 +26,32 @@ function IndexPopup() {
   const [message, setMessage] = useState("");
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [otpCode, setOtpCode] = useState("");
+  const [isScrapingRunning, setIsScrapingRunning] = useState(false);
 
   useEffect(() => {
     checkUser();
     
-    // Restaurer l'état si un magic link a été envoyé
     const savedEmail = localStorage.getItem("pendingMagicLink");
     if (savedEmail) {
       setEmail(savedEmail);
       setMagicLinkSent(true);
     }
-  }, []);
+    
+    // Vérifier le statut du scraping
+    const interval = setInterval(() => {
+      if (user) {
+        chrome.runtime.sendMessage({ action: 'GET_SCRAPING_STATUS' }, (response) => {
+          if (response) {
+            setIsScrapingRunning(response.isRunning || false);
+          }
+        });
+      }
+    }, 2000);
+    
+    return () => clearInterval(interval);
+  }, [user]);
 
-  // Ajouter fonction pour vérifier le code OTP
-  const handleVerifyOtp = async (e: React.FormEvent) => {
+  const handleVerifyOtp = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage("");
@@ -58,7 +70,9 @@ function IndexPopup() {
       setOtpCode("");
       localStorage.removeItem("pendingMagicLink");
       setMessage("Connexion réussie!");
-    } catch (error: any) {
+      
+      chrome.runtime.sendMessage({ action: 'USER_LOGGED_IN' });
+    } catch (error) {
       setMessage(`Erreur: ${error.message}`);
     } finally {
       setLoading(false);
@@ -67,9 +81,7 @@ function IndexPopup() {
 
   const checkUser = async () => {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
     } catch (error) {
       console.error("Erreur:", error);
@@ -78,7 +90,7 @@ function IndexPopup() {
     }
   };
 
-  const handleSendMagicLink = async (e: React.FormEvent) => {
+  const handleSendMagicLink = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage("");
@@ -87,7 +99,6 @@ function IndexPopup() {
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          // Ne PAS créer de nouveaux utilisateurs automatiquement
           shouldCreateUser: false,
         },
       });
@@ -97,7 +108,7 @@ function IndexPopup() {
       setMagicLinkSent(true);
       localStorage.setItem("pendingMagicLink", email);
       setMessage("Lien de connexion envoyé! Vérifiez votre email.");
-    } catch (error: any) {
+    } catch (error) {
       setMessage(`Erreur: ${error.message}`);
     } finally {
       setLoading(false);
@@ -113,11 +124,15 @@ function IndexPopup() {
       setEmail("");
       setMagicLinkSent(false);
       localStorage.removeItem("pendingMagicLink");
-    } catch (error: any) {
+    } catch (error) {
       setMessage(`Erreur: ${error.message}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleManualScraping = () => {
+    chrome.runtime.sendMessage({ action: 'START_SCRAPING', scrapeType: 'manual' });
   };
 
   if (loading) {
@@ -155,15 +170,53 @@ function IndexPopup() {
                 <p className="text-sm text-muted-foreground">{user.email}</p>
               </div>
 
-              <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-                <div className="flex items-center gap-2 text-green-800">
-                  <CheckCircle className="h-4 w-4" />
-                  <p className="text-sm font-medium">Extension active</p>
+              <div className="space-y-3">
+                {isScrapingRunning ? (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                    <div className="flex items-center gap-2 text-blue-800">
+                      <Activity className="h-4 w-4 animate-pulse" />
+                      <p className="text-sm font-medium">Scraping en cours...</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                    <div className="flex items-center gap-2 text-green-800">
+                      <CheckCircle className="h-4 w-4" />
+                      <p className="text-sm font-medium">Extension active</p>
+                    </div>
+                    <p className="mt-1 text-xs text-green-700">
+                      Scraping automatique en arrière-plan activé
+                    </p>
+                  </div>
+                )}
+                
+                <div className="rounded-lg border p-4 space-y-3">
+                  <h3 className="text-sm font-medium">Contrôles</h3>
+                  
+                  <Button
+                    onClick={handleManualScraping}
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={isScrapingRunning}
+                  >
+                    {isScrapingRunning ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Scraping en cours...
+                      </>
+                    ) : (
+                      '🔄 Lancer un scraping manuel'
+                    )}
+                  </Button>
+                  
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p>• Scraping complet à l'inscription</p>
+                    <p>• Scraping partiel quotidien (posts &lt; 14j)</p>
+                    <p>• Déduplication automatique par URL</p>
+                    <p>• Médias sauvegardés</p>
+                  </div>
                 </div>
-                <p className="mt-1 text-xs text-green-700">
-                  Vos posts sont collectés automatiquement lors de votre
-                  navigation sur LinkedIn
-                </p>
               </div>
             </div>
           ) : (
@@ -224,9 +277,6 @@ function IndexPopup() {
                         maxLength={6}
                         className="text-center text-lg tracking-widest"
                       />
-                      <p className="text-xs text-muted-foreground">
-                        Entrez le code à 6 chiffres reçu par email
-                      </p>
                     </div>
                     
                     <Button type="submit" className="w-full" disabled={loading}>
